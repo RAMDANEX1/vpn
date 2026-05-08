@@ -4,14 +4,21 @@ import hashlib
 import zlib
 from Crypto.Cipher import AES
 
+# Diffie-Hellman simplifié (RFC 3526 - 2048-bit MODP Group 14)
+# p = grand nombre premier, g = base
+DH_P = 0xFFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD129024E088A67CC74020BBEA63B139B22514A08798E3404DDEF9519B3CD3A431B302B0A6DF25F14374FE1356D6D51C245E485B576625E7EC6F44C42E9A637ED6B0BFF5CB6F406B7EDEE386BFB5A899FA5AE9F24117C4B1FE649286651ECE65381FFFFFFFFFFFFFFFF
+DH_G = 2
 
-SALT_FIXE = b'vpn_educatif_l2_2026'  # sel fixe partagé
+# Salt par défaut pour backward compatibility (chiffrement sans DH)
+SALT_FIXE = b'vpn_educatif_l2_2026'
 
 
 def _obtenir_cle(mot_de_passe: str, salt: bytes = SALT_FIXE) -> bytes:
     """
     Dérive une clé AES-256 avec PBKDF2-HMAC-SHA256 (100 000 itérations).
-    Beaucoup plus sûr qu'un simple SHA-256 sans sel.
+    
+    Par défaut utilise SALT_FIXE pour backward compatibility.
+    Pour les nouvelles sessions, passer salt unique issu de Diffie-Hellman.
     """
     return hashlib.pbkdf2_hmac(
         hash_name='sha256',
@@ -64,3 +71,37 @@ def dechiffrer(donnees: bytes, mot_de_passe: str) -> str:
         payload = zlib.decompress(payload)
     
     return payload.decode('utf-8')
+
+
+# ========== DIFFIE-HELLMAN (Échange de clé sécurisé) ==========
+
+def dh_generate_key() -> tuple:
+    """
+    Génère une paire de clés Diffie-Hellman.
+    Retourne : (private_key_int, public_key_int)
+    """
+    # Private key : nombre aléatoire entre 2 et p-2
+    private_key = int.from_bytes(os.urandom(256), byteorder='big') % (DH_P - 2) + 2
+    # Public key : g^private mod p
+    public_key = pow(DH_G, private_key, DH_P)
+    return private_key, public_key
+
+
+def dh_compute_shared_secret(private_key: int, peer_public_key: int) -> bytes:
+    """
+    Calcule le secret partagé : peer_public^private mod p
+    Retourne : 16 bytes (salt unique pour cette session)
+    """
+    # Shared secret : peer_public^private mod p
+    shared_secret_int = pow(peer_public_key, private_key, DH_P)
+    # Convertir en bytes et hash pour obtenir 16 bytes de salt
+    shared_secret_bytes = shared_secret_int.to_bytes(256, byteorder='big')
+    return hashlib.sha256(shared_secret_bytes).digest()[:16]
+
+
+def dh_derive_session_key(shared_secret_salt: bytes, mot_de_passe: str) -> bytes:
+    """
+    Dérive une clé AES-256 unique pour cette session.
+    Utilise le salt DH + mot de passe partagé.
+    """
+    return _obtenir_cle(mot_de_passe, salt=shared_secret_salt)

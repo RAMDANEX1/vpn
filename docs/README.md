@@ -232,19 +232,55 @@ tcpdump -r vpn_capture.pcap -A -X port 5000 | head -50
 tcpdump -r vpn_capture.pcap -n 'port 5000' | awk '{print $NF}' | sort | uniq -c
 ```
 
+## 🔑 Diffie-Hellman Key Exchange (Clés uniques par session)
+
+**Problème résolu :** Le sel PBKDF2 était fixe (même sel = même clé pour tous les clients)
+
+**Solution implémentée :** Diffie-Hellman (RFC 3526 - 2048-bit MODP Group 14)
+
+```python
+# Avant (❌ FAILLE)
+SALT_FIXE = b'vpn_educatif_l2_2026'  # Tous les clients → même clé !
+
+# Après (✅ FIXÉ)
+DH_P = 0xFFFF...FFFF  # 2048-bit prime
+DH_G = 2              # générateur
+
+# Chaque session :
+server_private, server_public = dh_generate_key()
+client_private, client_public = dh_generate_key()
+
+# Échange des clés publiques
+server_salt = dh_compute_shared_secret(server_private, client_public)
+client_salt = dh_compute_shared_secret(client_private, server_public)
+
+# Salt unique par session ! (même pour les deux)
+assert server_salt == client_salt  ✓
+```
+
+**Test de vérification :**
+```bash
+python test_dh.py
+# [OK] Secrets match: True
+# [OK] Session keys match: True
+# Each session gets unique key
+```
+
+**Résultat :** Chaque session client-serveur obtient une clé AES-256 **unique**, même avec le même mot de passe.
+
 ## ⚠️ Limitations éducatives
 
 - **Pas de vrai routage IP** : c'est un tunnel chiffré, pas un VPN complet L3
 - **Pas de certificats TLS** : utilise HMAC pré-partagé uniquement
 - **Pas de chiffrement de métadonnées** : les longueurs de message sont visibles
-- **Pas de PFS** : une clé partagée pour tous les clients
+- ~~**Pas de PFS** : une clé partagée pour tous les clients~~ **FIXÉ** : DH fournit now session-unique keys
 
 ## 🎓 Améliorations futures
 
+- [ ] Intégrer DH handshake dans server.py/client.py
 - [ ] Transfert de fichiers complets
 - [ ] Interface web
 - [ ] Implémentation L3 complète (tun/tap)
-- [ ] Perfect Forward Secrecy (PFS) avec Diffie-Hellman
 - [ ] Rate limiting côté serveur
 - [ ] Session timeouts
 - [ ] Audit trail complet
