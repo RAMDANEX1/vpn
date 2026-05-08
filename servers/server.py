@@ -1,4 +1,4 @@
-# server.py — Serveur VPN éducatif (M3) - Multi-client avec authentication HMAC
+# server.py — Serveur VPN éducatif (M3) - Multi-client avec authentication HMAC + Diffie-Hellman
 import socket
 import threading
 import logging
@@ -7,7 +7,7 @@ import os
 import argparse
 from itertools import count
 from core.config import SERVEUR_IP, SERVEUR_PORT, MOT_DE_PASSE, TAILLE_BUFFER
-from core.crypto import chiffrer, dechiffrer
+from core.crypto import chiffrer, dechiffrer, dh_generate_key, dh_compute_shared_secret
 from core.protocol import envoyer, recevoir, emballer, deballer, TypeMessage
 from core.exceptions import AuthenticationError, TunnelError
 
@@ -77,6 +77,42 @@ def demarrer_serveur(host=SERVEUR_IP, port=SERVEUR_PORT, max_clients=10):
         s.close()
 
 
+def dh_handshake_server(conn, addr) -> bytes:
+    """
+    Effectue l'échange de clé Diffie-Hellman avec le client.
+    Retourne le salt dérivé du shared secret.
+    """
+    try:
+        # Serveur génère sa paire de clés DH
+        server_private, server_public = dh_generate_key()
+        
+        # Envoyer la clé publique au client (format: nombre entier en hex)
+        server_public_hex = hex(server_public)[2:].encode()
+        envoyer(conn, emballer(TypeMessage.REKEY, server_public_hex))
+        logging.debug(f"[DH] Public key envoyée à {addr}")
+        
+        # Recevoir la clé publique du client
+        donnees = recevoir(conn)
+        msg_type, seq, client_public_hex = deballer(donnees)
+        
+        if msg_type != TypeMessage.REKEY:
+            logging.warning(f"[DH] {addr} n'a pas envoyé sa clé publique")
+            return None
+        
+        # Convertir la clé publique du client de hex à int
+        client_public = int(client_public_hex.decode(), 16)
+        
+        # Calculer le shared secret (salt)
+        shared_secret_salt = dh_compute_shared_secret(server_private, client_public)
+        logging.info(f"[DH] Shared secret établi avec {addr}, salt={shared_secret_salt.hex()}")
+        
+        return shared_secret_salt
+    
+    except Exception as e:
+        logging.error(f"[DH] Erreur handshake avec {addr}: {e}")
+        return None
+
+
 def gerer_client(conn, addr):
     """Gère la connexion d'un client."""
     ip_client = addr[0]
@@ -88,8 +124,14 @@ def gerer_client(conn, addr):
             conn.close()
             return
         
-        # Authentification avec challenge-response HMAC
-        if not authentifier(conn, addr):
+        # === ÉCHANGE DIFFIE-HELLMAN (unique key per session) ===
+        dh_salt = dh_handshake_server(conn, addr)
+        if dh_salt is None:
+            logging.warning(f"[DH] Échec de l'échange avec {addr}")
+            return
+        
+        # Authentification avec challenge-response HMAC (avec le salt DH)
+        if not authentifier(conn, addr, salt=dh_salt):
             enregistrer_echec(ip_client)
             logging.warning(f"Authentification échouée depuis {addr}")
             return
@@ -124,7 +166,7 @@ def gerer_client(conn, addr):
             
             if msg_type == TypeMessage.DATA:
                 try:
-                    message = dechiffrer(payload, MOT_DE_PASSE)
+                    message = dechiffrer(payload, MOT_DE_PASSE, salt=dh_salt)
                     logging.info(f"[{addr}] {message}")
                     
                     if message.lower() in ("exit", "quit"):
@@ -132,7 +174,7 @@ def gerer_client(conn, addr):
                     
                     # Répondre
                     reponse = f"Serveur a reçu : '{message}'"
-                    reponse_chiffree = chiffrer(reponse, MOT_DE_PASSE)
+                    reponse_chiffree = chiffrer(reponse, MOT_DE_PASSE, salt=dh_salt)
                     msg_reponse = emballer(TypeMessage.DATA, reponse_chiffree, seq=seq+1)
                     envoyer(conn, msg_reponse)
                     
@@ -157,11 +199,17 @@ def gerer_client(conn, addr):
         logging.info(f"[FIN] {addr} déconnecté — {len(clients_connectes)} client(s) restant(s)")
 
 
-def authentifier(conn, addr) -> bool:
+def authentifier(conn, addr, salt: bytes = None) -> bool:
     """
     Challenge-Response HMAC pour authentification sécurisée.
     Le mot de passe n'est jamais envoyé en clair.
+    
+    Args:
+        salt: Salt DH pour dérivation de clé. Si None, utilise SALT_FIXE.
     """
+    if salt is None:
+        from core.crypto import SALT_FIXE
+        salt = SALT_FIXE
     try:
         # Envoyer un nonce aléatoire au client
         nonce = os.urandom(32)

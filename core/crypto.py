@@ -29,12 +29,18 @@ def _obtenir_cle(mot_de_passe: str, salt: bytes = SALT_FIXE) -> bytes:
     )
 
 
-def chiffrer(message: str, mot_de_passe: str, compresser: bool = True) -> bytes:
+def chiffrer(message: str, mot_de_passe: str, compresser: bool = True, salt: bytes = None) -> bytes:
     """
     Chiffre un message texte avec AES-256-GCM, avec compression optionnelle.
     Retourne un paquet bytes : flag_compression(1) + IV(12) + message_chiffré + tag(16)
+    
+    Args:
+        salt: Salt pour PBKDF2. Si None, utilise SALT_FIXE (backward compat).
+              Si fourni, utilise le salt issu de Diffie-Hellman.
     """
-    cle = _obtenir_cle(mot_de_passe)
+    if salt is None:
+        salt = SALT_FIXE
+    cle = _obtenir_cle(mot_de_passe, salt=salt)
     iv = os.urandom(12)  # 12 bytes aléatoires (différent à chaque fois)
     
     payload = message.encode('utf-8')
@@ -53,13 +59,19 @@ def chiffrer(message: str, mot_de_passe: str, compresser: bool = True) -> bytes:
     return flag_compression + iv + chiffre + tag  # tout dans un seul paquet
 
 
-def dechiffrer(donnees: bytes, mot_de_passe: str) -> str:
+def dechiffrer(donnees: bytes, mot_de_passe: str, salt: bytes = None) -> str:
     """
     Déchiffre un paquet produit par chiffrer().
     Gère automatiquement la décompression si nécessaire.
     Lève ValueError si le paquet a été modifié (sécurité !)
+    
+    Args:
+        salt: Salt pour PBKDF2. Si None, utilise SALT_FIXE (backward compat).
+              Si fourni, utilise le salt issu de Diffie-Hellman.
     """
-    cle = _obtenir_cle(mot_de_passe)
+    if salt is None:
+        salt = SALT_FIXE
+    cle = _obtenir_cle(mot_de_passe, salt=salt)
     flag_compression = donnees[0:1]
     iv = donnees[1:13]  # les 12 bytes après le flag = IV
     chiffre = donnees[13:-16]  # le milieu = message chiffré
