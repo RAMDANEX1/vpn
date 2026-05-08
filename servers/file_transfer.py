@@ -5,7 +5,7 @@ from core.protocol import envoyer, recevoir, emballer, deballer, TypeMessage
 from core.crypto import chiffrer, dechiffrer
 
 
-def envoyer_fichier(sock: socket.socket, chemin: str, mot_de_passe: str, salt: bytes = None):
+def envoyer_fichier(sock: socket.socket, chemin: str, mot_de_passe: str, salt: bytes = None, get_seq=None, inc_seq=None):
     """
     Envoie un fichier au serveur via le tunnel chiffré.
     
@@ -13,6 +13,10 @@ def envoyer_fichier(sock: socket.socket, chemin: str, mot_de_passe: str, salt: b
     1. FILE_START : métadonnées (nom + taille)
     2. FILE_CHUNK x N : morceaux du fichier
     3. FILE_END : confirmation
+    
+    Args:
+        get_seq: fonction lambda ou callable pour obtenir la séquence courante
+        inc_seq: fonction lambda ou callable pour incrémenter la séquence
     """
     if not os.path.exists(chemin):
         print(f"[ERREUR] Fichier introuvable : {chemin}")
@@ -22,11 +26,19 @@ def envoyer_fichier(sock: socket.socket, chemin: str, mot_de_passe: str, salt: b
     taille = os.path.getsize(chemin)
     CHUNK_SIZE = 4096
     
+    # Fonctions par défaut (pour compatibilité backward)
+    if get_seq is None:
+        get_seq = lambda: 0
+    if inc_seq is None:
+        inc_seq = lambda: None
+    
     try:
         # Annoncer le fichier
         meta = f"{nom}:{taille}".encode()
         meta_chiffre = chiffrer(meta, mot_de_passe, salt=salt)
-        envoyer(sock, emballer(TypeMessage.FILE_START, meta_chiffre))
+        seq = get_seq()
+        envoyer(sock, emballer(TypeMessage.FILE_START, meta_chiffre, seq=seq))
+        inc_seq()
         print(f"[FICHIER] Envoi de '{nom}' ({taille} bytes)...")
         
         # Envoyer en morceaux (binaire direct, pas de décodage)
@@ -37,13 +49,17 @@ def envoyer_fichier(sock: socket.socket, chemin: str, mot_de_passe: str, salt: b
                 if not chunk:
                     break
                 chunk_chiffre = chiffrer(chunk, mot_de_passe, salt=salt)
-                envoyer(sock, emballer(TypeMessage.FILE_CHUNK, chunk_chiffre))
+                seq = get_seq()
+                envoyer(sock, emballer(TypeMessage.FILE_CHUNK, chunk_chiffre, seq=seq))
+                inc_seq()
                 envoye += len(chunk)
                 pourcentage = 100 * envoye // taille
                 print(f"\r[FICHIER] {envoye}/{taille} bytes ({pourcentage}%)", end='', flush=True)
         
         # Confirmer l'envoi
-        envoyer(sock, emballer(TypeMessage.FILE_END, b''))
+        seq = get_seq()
+        envoyer(sock, emballer(TypeMessage.FILE_END, b'', seq=seq))
+        inc_seq()
         print(f"\n[FICHIER] '{nom}' envoyé avec succès")
         return True
     

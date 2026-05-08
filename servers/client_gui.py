@@ -39,6 +39,7 @@ class VpnClientGUI:
         self.sock = None
         self.mot_de_passe = None
         self.dh_salt = None  # Salt dérivé de Diffie-Hellman
+        self.seq = 0  # ← Séquence pour les messages (anti-rejeu)
         self.connected = False
         self.start_time = None
         self.msg_sent = 0
@@ -471,13 +472,12 @@ class VpnClientGUI:
 
     def keepalive(self):
         """Envoie des PING au serveur."""
-        seq = 0
         while self.connected and self.sock:
             time.sleep(30)
             try:
                 self.last_ping_time = time.time()
-                envoyer(self.sock, emballer(TypeMessage.PING, b'', seq=seq))
-                seq += 1
+                envoyer(self.sock, emballer(TypeMessage.PING, b'', seq=self.seq))
+                self.seq += 1
             except OSError:
                 break
 
@@ -487,7 +487,8 @@ class VpnClientGUI:
         if message and self.sock and self.connected:
             try:
                 message_chiffre = chiffrer(message, self.mot_de_passe, salt=self.dh_salt)
-                envoyer(self.sock, emballer(TypeMessage.DATA, message_chiffre, seq=0))
+                envoyer(self.sock, emballer(TypeMessage.DATA, message_chiffre, seq=self.seq))
+                self.seq += 1
                 self.msg_sent += 1
                 self.bytes_sent += len(message.encode())
                 self.log_message(message, "Toi")
@@ -502,7 +503,8 @@ class VpnClientGUI:
             try:
                 ping_time = time.time()
                 self.last_ping_time = ping_time
-                envoyer(self.sock, emballer(TypeMessage.PING, b'', seq=0))
+                envoyer(self.sock, emballer(TypeMessage.PING, b'', seq=self.seq))
+                self.seq += 1
                 self.log_message("Ping envoyé...", "Système")
             except OSError:
                 self.log_message("Erreur lors du ping", "Erreur")
@@ -519,7 +521,10 @@ class VpnClientGUI:
         if file_path:
             try:
                 from .file_transfer import envoyer_fichier
-                if envoyer_fichier(self.sock, file_path, self.mot_de_passe, salt=self.dh_salt):
+                # Passer les fonctions pour gérer la séquence
+                get_seq = lambda: self.seq
+                inc_seq = lambda: setattr(self, 'seq', self.seq + 1)
+                if envoyer_fichier(self.sock, file_path, self.mot_de_passe, salt=self.dh_salt, get_seq=get_seq, inc_seq=inc_seq):
                     self.log_message(f"Fichier '{os.path.basename(file_path)}' envoyé avec succès", "Système")
                     self.bytes_sent += os.path.getsize(file_path)
             except Exception as e:
@@ -593,7 +598,7 @@ Créé pour l'éducation à la cybersécurité.
         """Déconnexion sécurisée."""
         if self.sock and self.connected:
             try:
-                envoyer(self.sock, emballer(TypeMessage.CLOSE, b'', seq=0))
+                envoyer(self.sock, emballer(TypeMessage.CLOSE, b'', seq=self.seq))
             except:
                 pass
             finally:

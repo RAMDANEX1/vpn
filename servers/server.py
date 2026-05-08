@@ -9,6 +9,7 @@ from itertools import count
 from core.config import SERVEUR_IP, SERVEUR_PORT, MOT_DE_PASSE, TAILLE_BUFFER
 from core.crypto import chiffrer, dechiffrer, dh_generate_key, dh_compute_shared_secret
 from core.protocol import envoyer, recevoir, emballer, deballer, TypeMessage
+from core.exceptions import ReplayAttackError
 from core.exceptions import AuthenticationError, TunnelError
 
 # Configuration du logging
@@ -62,12 +63,41 @@ def demarrer_serveur(host=SERVEUR_IP, port=SERVEUR_PORT, max_clients=10):
     try:
         while True:
             conn, addr = s.accept()
-            # Créer un thread pour gérer ce client
+            ip_client = addr[0]
+            
+            # VÉRIFIER SI L'IP EST BANNIE (AVANT le handshake DH)
+            if est_banni(ip_client):
+                logging.warning(f"Refus {addr}: IP bannie")
+                try:
+                    envoyer(conn, emballer(TypeMessage.AUTH_FAIL, b"IP bannie"))
+                except:
+                    pass
+                conn.close()
+                continue
+            
+            # VÉRIFIER LIMITE DE CLIENTS (max_clients vraiment appliquée!)
+            with lock:
+                nb_connectes = len(clients_connectes)
+            
+            if nb_connectes >= max_clients:
+                logging.warning(f"Refus {addr}: limite de {max_clients} clients atteinte ({nb_connectes} actifs)")
+                try:
+                    envoyer(conn, emballer(TypeMessage.AUTH_FAIL, b"Serveur plein"))
+                except:
+                    pass
+                conn.close()
+                continue
+            
+            # AJOUTER AU DICTIONNAIRE AVANT DE LANCER LE THREAD (évite race condition)
+            with lock:
+                clients_connectes[addr] = {"thread": None, "ip_virtuelle": None}
+            
+            # Créer et lancer le thread
             t = threading.Thread(target=gerer_client, args=(conn, addr), daemon=True)
             t.start()
             
             with lock:
-                clients_connectes[addr] = {"thread": t, "ip_virtuelle": None}
+                clients_connectes[addr]["thread"] = t
             
             logging.info(f"Client {addr} connecté — {len(clients_connectes)} client(s) actif(s)")
     
@@ -125,13 +155,8 @@ def gerer_client(conn, addr):
     file_received = 0
     
     try:
-        # Vérifier si l'IP est bannie
-        if est_banni(ip_client):
-            logging.warning(f"Tentative de connexion depuis IP bannie : {addr}")
-            conn.close()
-            return
-        
         # === ÉCHANGE DIFFIE-HELLMAN (unique key per session) ===
+        # Note: Vérification du ban et du max faite AVANT dans demarrer_serveur()
         dh_salt = dh_handshake_server(conn, addr)
         if dh_salt is None:
             logging.warning(f"[DH] Échec de l'échange avec {addr}")
@@ -157,7 +182,7 @@ def gerer_client(conn, addr):
         logging.info(f"{addr} -> IP virtuelle {ip_virtuelle}")
         
         # Boucle d'échange de messages chiffrés
-        seq_attendu = 0
+        seq_attendu = -1  # ← Start à -1 pour accepter seq=0 (premier message)
         while True:
             donnees = recevoir(conn)
             
@@ -166,6 +191,14 @@ def gerer_client(conn, addr):
             except Exception as e:
                 logging.error(f"Erreur deballing {addr}: {e}")
                 break
+            
+            # === VÉRIFICATION DE SÉQUENCE (protection contre rejeu) ===
+            if seq <= seq_attendu and msg_type != TypeMessage.CHALLENGE:
+                # Note: CHALLENGE n'a pas de séquence garantie (challenge-response)
+                logging.warning(f"[REPLAY] {addr} seq={seq} <= attendu={seq_attendu} (attaque par rejeu?)")
+                raise ReplayAttackError(f"Séquence invalide: {seq} <= {seq_attendu}")
+            
+            seq_attendu = seq
             
             if msg_type == TypeMessage.CLOSE:
                 logging.info(f"{addr} demande la fermeture")
@@ -248,10 +281,16 @@ def gerer_client(conn, addr):
                 pass
         
         conn.close()
+        
+        # Nettoyer l'entrée du client (robuste avec dict.pop)
         with lock:
-            if addr in clients_connectes:
-                del clients_connectes[addr]
-        logging.info(f"[FIN] {addr} déconnecté — {len(clients_connectes)} client(s) restant(s)")
+            removed = clients_connectes.pop(addr, None)
+            remaining = len(clients_connectes)
+        
+        if removed:
+            logging.info(f"[FIN] {addr} déconnecté — {remaining} client(s) restant(s)")
+        else:
+            logging.warning(f"[FIN] {addr} n'était pas dans clients_connectes (race condition?) — {remaining} clients")
 
 
 def authentifier(conn, addr, salt: bytes = None) -> bool:
