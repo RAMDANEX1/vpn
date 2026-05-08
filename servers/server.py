@@ -117,6 +117,13 @@ def gerer_client(conn, addr):
     """Gère la connexion d'un client."""
     ip_client = addr[0]
     
+    # Initialiser les variables de transfert de fichier AVANT le try
+    file_handle = None
+    file_transfer_state = None
+    file_name = None
+    file_size = None
+    file_received = 0
+    
     try:
         # Vérifier si l'IP est bannie
         if est_banni(ip_client):
@@ -182,6 +189,47 @@ def gerer_client(conn, addr):
                     logging.error(f"Erreur déchiffrement {addr}: {e}")
                     break
             
+            elif msg_type == TypeMessage.FILE_START:
+                # Début d'un transfert de fichier
+                try:
+                    meta = dechiffrer(payload, MOT_DE_PASSE, salt=dh_salt, return_bytes=False)
+                    file_name, file_size_str = meta.split(':')
+                    file_size = int(file_size_str)
+                    file_received = 0
+                    
+                    file_path = os.path.join("fichiers_recus", file_name)
+                    os.makedirs("fichiers_recus", exist_ok=True)
+                    
+                    file_handle = open(file_path, 'wb')
+                    file_transfer_state = "receiving"
+                    logging.info(f"[FILE] {addr} envoie '{file_name}' ({file_size} bytes)")
+                except Exception as e:
+                    logging.error(f"Erreur FILE_START {addr}: {e}")
+                    file_transfer_state = None
+            
+            elif msg_type == TypeMessage.FILE_CHUNK:
+                # Chunk de fichier
+                if file_transfer_state == "receiving" and file_handle:
+                    try:
+                        chunk = dechiffrer(payload, MOT_DE_PASSE, salt=dh_salt, return_bytes=True)
+                        file_handle.write(chunk)
+                        file_received += len(chunk)
+                        pourcentage = 100 * file_received // file_size if file_size > 0 else 0
+                        logging.debug(f"[FILE] {file_received}/{file_size} bytes ({pourcentage}%)")
+                    except Exception as e:
+                        logging.error(f"Erreur FILE_CHUNK {addr}: {e}")
+                        file_transfer_state = None
+            
+            elif msg_type == TypeMessage.FILE_END:
+                # Fin du transfert
+                if file_transfer_state == "receiving" and file_handle:
+                    try:
+                        file_handle.close()
+                        logging.info(f"[FILE] '{file_name}' reçu ({file_received} bytes) de {addr}")
+                        file_transfer_state = None
+                    except Exception as e:
+                        logging.error(f"Erreur FILE_END {addr}: {e}")
+            
             elif msg_type == TypeMessage.PING:
                 # Répondre avec PONG
                 envoyer(conn, emballer(TypeMessage.PONG, b'', seq=seq+1))
@@ -192,6 +240,13 @@ def gerer_client(conn, addr):
     except Exception as e:
         logging.error(f"Erreur pour {addr}: {e}", exc_info=True)
     finally:
+        # Nettoyer le fichier s'il était en cours de réception
+        if file_handle:
+            try:
+                file_handle.close()
+            except:
+                pass
+        
         conn.close()
         with lock:
             if addr in clients_connectes:

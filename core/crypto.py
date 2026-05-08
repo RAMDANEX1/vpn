@@ -29,12 +29,13 @@ def _obtenir_cle(mot_de_passe: str, salt: bytes = SALT_FIXE) -> bytes:
     )
 
 
-def chiffrer(message: str, mot_de_passe: str, compresser: bool = True, salt: bytes = None) -> bytes:
+def chiffrer(message: str | bytes, mot_de_passe: str, compresser: bool = True, salt: bytes = None) -> bytes:
     """
-    Chiffre un message texte avec AES-256-GCM, avec compression optionnelle.
+    Chiffre un message (texte ou binaire) avec AES-256-GCM, avec compression optionnelle.
     Retourne un paquet bytes : flag_compression(1) + IV(12) + message_chiffré + tag(16)
     
     Args:
+        message: str ou bytes à chiffrer. Si str, encodé en UTF-8. Si bytes, utilisé directement.
         salt: Salt pour PBKDF2. Si None, utilise SALT_FIXE (backward compat).
               Si fourni, utilise le salt issu de Diffie-Hellman.
     """
@@ -43,7 +44,12 @@ def chiffrer(message: str, mot_de_passe: str, compresser: bool = True, salt: byt
     cle = _obtenir_cle(mot_de_passe, salt=salt)
     iv = os.urandom(12)  # 12 bytes aléatoires (différent à chaque fois)
     
-    payload = message.encode('utf-8')
+    # Convertir message en bytes s'il est str
+    if isinstance(message, str):
+        payload = message.encode('utf-8')
+    else:
+        payload = message
+    
     flag_compression = b'\x01' if compresser else b'\x00'
     
     if compresser:
@@ -59,7 +65,7 @@ def chiffrer(message: str, mot_de_passe: str, compresser: bool = True, salt: byt
     return flag_compression + iv + chiffre + tag  # tout dans un seul paquet
 
 
-def dechiffrer(donnees: bytes, mot_de_passe: str, salt: bytes = None) -> str:
+def dechiffrer(donnees: bytes, mot_de_passe: str, salt: bytes = None, return_bytes: bool = False) -> str | bytes:
     """
     Déchiffre un paquet produit par chiffrer().
     Gère automatiquement la décompression si nécessaire.
@@ -68,6 +74,7 @@ def dechiffrer(donnees: bytes, mot_de_passe: str, salt: bytes = None) -> str:
     Args:
         salt: Salt pour PBKDF2. Si None, utilise SALT_FIXE (backward compat).
               Si fourni, utilise le salt issu de Diffie-Hellman.
+        return_bytes: Si True, retourne les bytes bruts. Si False (défaut), décode en UTF-8.
     """
     if salt is None:
         salt = SALT_FIXE
@@ -82,7 +89,10 @@ def dechiffrer(donnees: bytes, mot_de_passe: str, salt: bytes = None) -> str:
     if flag_compression == b'\x01':
         payload = zlib.decompress(payload)
     
-    return payload.decode('utf-8')
+    if return_bytes:
+        return payload
+    else:
+        return payload.decode('utf-8')
 
 
 # ========== DIFFIE-HELLMAN (Échange de clé sécurisé) ==========

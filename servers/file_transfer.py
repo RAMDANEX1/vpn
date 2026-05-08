@@ -5,7 +5,7 @@ from core.protocol import envoyer, recevoir, emballer, deballer, TypeMessage
 from core.crypto import chiffrer, dechiffrer
 
 
-def envoyer_fichier(sock: socket.socket, chemin: str, mot_de_passe: str):
+def envoyer_fichier(sock: socket.socket, chemin: str, mot_de_passe: str, salt: bytes = None):
     """
     Envoie un fichier au serveur via le tunnel chiffré.
     
@@ -25,18 +25,18 @@ def envoyer_fichier(sock: socket.socket, chemin: str, mot_de_passe: str):
     try:
         # Annoncer le fichier
         meta = f"{nom}:{taille}".encode()
-        meta_chiffre = chiffrer(meta.decode(), mot_de_passe)
+        meta_chiffre = chiffrer(meta, mot_de_passe, salt=salt)
         envoyer(sock, emballer(TypeMessage.FILE_START, meta_chiffre))
         print(f"[FICHIER] Envoi de '{nom}' ({taille} bytes)...")
         
-        # Envoyer en morceaux
+        # Envoyer en morceaux (binaire direct, pas de décodage)
         with open(chemin, 'rb') as f:
             envoye = 0
             while True:
                 chunk = f.read(CHUNK_SIZE)
                 if not chunk:
                     break
-                chunk_chiffre = chiffrer(chunk.decode('utf-8', errors='ignore'), mot_de_passe)
+                chunk_chiffre = chiffrer(chunk, mot_de_passe, salt=salt)
                 envoyer(sock, emballer(TypeMessage.FILE_CHUNK, chunk_chiffre))
                 envoye += len(chunk)
                 pourcentage = 100 * envoye // taille
@@ -52,7 +52,7 @@ def envoyer_fichier(sock: socket.socket, chemin: str, mot_de_passe: str):
         return False
 
 
-def recevoir_fichier(sock: socket.socket, mot_de_passe: str, dossier_destination: str = ".") -> bool:
+def recevoir_fichier(sock: socket.socket, mot_de_passe: str, salt: bytes = None, dossier_destination: str = ".") -> bool:
     """
     Reçoit un fichier du serveur via le tunnel chiffré.
     Le fichier est sauvegardé dans dossier_destination.
@@ -66,7 +66,7 @@ def recevoir_fichier(sock: socket.socket, mot_de_passe: str, dossier_destination
             print("[ERREUR] Protocole de transfert invalide")
             return False
         
-        meta = dechiffrer(payload, mot_de_passe)
+        meta = dechiffrer(payload, mot_de_passe, salt=salt, return_bytes=False)
         nom, taille_str = meta.split(':')
         taille = int(taille_str)
         
@@ -84,7 +84,7 @@ def recevoir_fichier(sock: socket.socket, mot_de_passe: str, dossier_destination
                     break
                 
                 if msg_type == TypeMessage.FILE_CHUNK:
-                    chunk = dechiffrer(payload, mot_de_passe).encode('utf-8', errors='ignore')
+                    chunk = dechiffrer(payload, mot_de_passe, salt=salt, return_bytes=True)
                     f.write(chunk)
                     recu += len(chunk)
                     pourcentage = 100 * recu // taille

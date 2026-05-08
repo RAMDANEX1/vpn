@@ -9,7 +9,7 @@ import hmac
 import os
 import time
 from core.config import SERVEUR_IP, SERVEUR_PORT, TAILLE_BUFFER
-from core.crypto import chiffrer, dechiffrer
+from core.crypto import chiffrer, dechiffrer, dh_generate_key, dh_compute_shared_secret
 from core.protocol import envoyer, recevoir, emballer, deballer, TypeMessage
 
 
@@ -38,6 +38,7 @@ class VpnClientGUI:
         # Statistics tracking
         self.sock = None
         self.mot_de_passe = None
+        self.dh_salt = None  # Salt dérivé de Diffie-Hellman
         self.connected = False
         self.start_time = None
         self.msg_sent = 0
@@ -341,7 +342,15 @@ class VpnClientGUI:
             messagebox.showerror("Erreur", "Le port doit être un nombre.")
             return
 
-        # Authentification
+        # === ÉCHANGE DIFFIE-HELLMAN ===
+        self.dh_salt = self.dh_handshake_client()
+        if self.dh_salt is None:
+            messagebox.showerror("Erreur DH", "Échec de l'échange Diffie-Hellman")
+            self.sock.close()
+            self.sock = None
+            return
+
+        # Authentification (avec salt DH)
         try:
             if not self.authentifier():
                 messagebox.showerror("Authentification échouée", "Mot de passe incorrect.")
@@ -364,7 +373,7 @@ class VpnClientGUI:
         
         self.log_message(f"Connecté à {ip}:{port}", "Système")
         self.status_label.config(text="🟢 Connecté", fg=THEME["success_green"])
-        self.security_label.config(text="✅ AES-256-GCM | ✅ HMAC-SHA256 | ✅ Zlib")
+        self.security_label.config(text="✅ AES-256-GCM | ✅ HMAC-SHA256 | ✅ DH-2048")
         
         self.connect_button.config(state='disabled')
         self.disconnect_button.config(state='normal')
@@ -381,8 +390,36 @@ class VpnClientGUI:
         # Mettre à jour les stats
         self.update_stats()
 
+    def dh_handshake_client(self) -> bytes:
+        """Effectue l'échange Diffie-Hellman avec le serveur."""
+        try:
+            # Client génère sa paire de clés DH
+            client_private, client_public = dh_generate_key()
+            
+            # Recevoir la clé publique du serveur
+            donnees = recevoir(self.sock)
+            msg_type, seq, server_public_hex = deballer(donnees)
+            
+            if msg_type != TypeMessage.REKEY:
+                return None
+            
+            # Convertir hex -> int
+            server_public = int(server_public_hex.decode(), 16)
+            
+            # Envoyer notre clé publique
+            client_public_hex = hex(client_public)[2:].encode()
+            envoyer(self.sock, emballer(TypeMessage.REKEY, client_public_hex))
+            
+            # Calculer shared secret
+            shared_secret_salt = dh_compute_shared_secret(client_private, server_public)
+            return shared_secret_salt
+        
+        except Exception as e:
+            print(f"[ERREUR DH] {e}")
+            return None
+
     def authentifier(self) -> bool:
-        """Effectue l'authentification HMAC challenge-response."""
+        """Effectue l'authentification HMAC challenge-response (avec salt DH)."""
         try:
             donnees = recevoir(self.sock)
             msg_type, seq, nonce = deballer(donnees)
@@ -410,7 +447,7 @@ class VpnClientGUI:
                 msg_type, seq, payload = deballer(donnees)
                 
                 if msg_type == TypeMessage.DATA:
-                    reponse = dechiffrer(payload, self.mot_de_passe)
+                    reponse = dechiffrer(payload, self.mot_de_passe, salt=self.dh_salt)
                     self.msg_received += 1
                     self.bytes_received += len(reponse.encode())
                     self.log_message(reponse, "Serveur")
@@ -449,7 +486,7 @@ class VpnClientGUI:
         message = self.msg_entry.get()
         if message and self.sock and self.connected:
             try:
-                message_chiffre = chiffrer(message, self.mot_de_passe)
+                message_chiffre = chiffrer(message, self.mot_de_passe, salt=self.dh_salt)
                 envoyer(self.sock, emballer(TypeMessage.DATA, message_chiffre, seq=0))
                 self.msg_sent += 1
                 self.bytes_sent += len(message.encode())
@@ -481,8 +518,8 @@ class VpnClientGUI:
         file_path = filedialog.askopenfilename(title="Sélectionner un fichier à envoyer")
         if file_path:
             try:
-                from file_transfer import envoyer_fichier
-                if envoyer_fichier(self.sock, file_path, self.mot_de_passe):
+                from .file_transfer import envoyer_fichier
+                if envoyer_fichier(self.sock, file_path, self.mot_de_passe, salt=self.dh_salt):
                     self.log_message(f"Fichier '{os.path.basename(file_path)}' envoyé avec succès", "Système")
                     self.bytes_sent += os.path.getsize(file_path)
             except Exception as e:
