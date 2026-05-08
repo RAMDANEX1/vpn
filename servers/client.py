@@ -5,10 +5,10 @@ import getpass
 import hmac
 import threading
 import time
-from config import SERVEUR_IP, SERVEUR_PORT, TAILLE_BUFFER
-from crypto import chiffrer, dechiffrer
-from protocol import envoyer, recevoir, emballer, deballer, TypeMessage
-from exceptions import AuthenticationError, TunnelError
+from core.config import SERVEUR_IP, SERVEUR_PORT, TAILLE_BUFFER
+from core.crypto import chiffrer, dechiffrer
+from core.protocol import envoyer, recevoir, emballer, deballer, TypeMessage
+from core.exceptions import AuthenticationError, TunnelError
 
 
 def se_connecter(serveur_ip=SERVEUR_IP, serveur_port=SERVEUR_PORT):

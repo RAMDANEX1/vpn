@@ -8,9 +8,9 @@ from datetime import timedelta
 import hmac
 import os
 import time
-from config import SERVEUR_IP, SERVEUR_PORT, TAILLE_BUFFER
-from crypto import chiffrer, dechiffrer
-from protocol import envoyer, recevoir, emballer, deballer, TypeMessage
+from core.config import SERVEUR_IP, SERVEUR_PORT, TAILLE_BUFFER
+from core.crypto import chiffrer, dechiffrer
+from core.protocol import envoyer, recevoir, emballer, deballer, TypeMessage
 
 
 # 🎨 THÈME DARK MODE

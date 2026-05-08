@@ -8,19 +8,19 @@ import getpass
 
 def main():
     print("=" * 60)
-    print("🔐 SERVEUR VPN — Launcher Sécurisé")
+    print("[VPN] SERVEUR VPN - Launcher Securise")
     print("=" * 60)
     
     # Demander le mot de passe interactivement
-    print("\n📝 Entrez le mot de passe pour le serveur VPN:")
+    print("\n[INPUT] Entrez le mot de passe pour le serveur VPN:")
     password = getpass.getpass("Mot de passe: ")
     
     if not password:
-        print("❌ Mot de passe vide, arrêt.")
+        print("[ERROR] Mot de passe vide, arret.")
         sys.exit(1)
     
     # Demander les paramètres optionnels
-    print("\n⚙️  Paramètres optionnels (appuyez sur Entrée pour les défauts):")
+    print("\n[CONFIG] Parametres optionnels (appuyez sur Entree pour les defauts):")
     
     port = input("Port [5000]: ").strip() or "5000"
     log_level = input("Niveau de log [DEBUG]: ").strip() or "DEBUG"
@@ -33,7 +33,7 @@ def main():
         if log_level not in ["DEBUG", "INFO", "WARNING"]:
             log_level = "DEBUG"
     except ValueError:
-        print("❌ Entrée invalide.")
+        print("[ERROR] Entree invalide.")
         sys.exit(1)
     
     # Définir la variable d'environnement
@@ -41,29 +41,29 @@ def main():
     
     # Afficher la configuration
     print("\n" + "=" * 60)
-    print("✅ Configuration du serveur:")
-    print(f"   🔐 Mot de passe : {'*' * len(password)}")
-    print(f"   📡 Port : {port}")
-    print(f"   📊 Log level : {log_level}")
-    print(f"   👥 Max clients : {max_clients}")
+    print("[OK] Configuration du serveur:")
+    print(f"   [PASSWORD] Mot de passe : {'*' * len(password)}")
+    print(f"   [PORT] Port : {port}")
+    print(f"   [LOG] Log level : {log_level}")
+    print(f"   [CLIENTS] Max clients : {max_clients}")
     print("=" * 60)
     
-    input("\n⏳ Appuyez sur Entrée pour démarrer le serveur...")
+    input("\n[WAIT] Appuyez sur Entree pour demarrer le serveur...")
     
     # Lancer le serveur
     try:
         cmd = [
-            "python", "server.py",
+            "python", "servers/server.py",
             "--port", str(port),
             "--log-level", log_level,
             "--max-clients", str(max_clients)
         ]
-        print(f"\n🚀 Lancement : {' '.join(cmd)}\n")
+        print(f"\n[START] Lancement : {' '.join(cmd)}\n")
         subprocess.run(cmd, check=False)
     except KeyboardInterrupt:
-        print("\n\n⛔ Serveur arrêté.")
+        print("\n\n[STOP] Serveur arrete.")
     except Exception as e:
-        print(f"❌ Erreur : {e}")
+        print(f"[ERROR] Erreur : {e}")
         sys.exit(1)
 
 if __name__ == "__main__":

@@ -1,8 +1,8 @@
 # file_transfer.py — Transfert sécurisé de fichiers via VPN
 import os
 import socket
-from protocol import envoyer, recevoir, emballer, deballer, TypeMessage
-from crypto import chiffrer, dechiffrer
+from core.protocol import envoyer, recevoir, emballer, deballer, TypeMessage
+from core.crypto import chiffrer, dechiffrer
 
 
 def envoyer_fichier(sock: socket.socket, chemin: str, mot_de_passe: str):

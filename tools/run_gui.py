@@ -2,7 +2,7 @@
 # run_gui.py — Launcher pour le client GUI VPN
 
 import tkinter as tk
-from client_gui import VpnClientGUI
+from servers.client_gui import VpnClientGUI
 
 if __name__ == "__main__":
     root = tk.Tk()

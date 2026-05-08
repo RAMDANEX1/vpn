@@ -3,7 +3,7 @@
 import struct
 import socket
 from enum import IntEnum
-from exceptions import PacketError
+from .exceptions import PacketError
 
 
 class TypeMessage(IntEnum):
