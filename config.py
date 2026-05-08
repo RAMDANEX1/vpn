@@ -1,8 +1,10 @@
 # config.py
 # Réglages partagés par tout le monde
-# NE PAS MODIFIER sans prévenir l'équipe
+# Charge les variables depuis l'environnement pour éviter de hardcoder les secrets
 
-SERVEUR_IP    = "127.0.0.1"       # localhost pour tester sur la même machine
-SERVEUR_PORT  = 9999
-MOT_DE_PASSE  = "kabyle2026"  # clé partagée (PSK)
-TAILLE_BUFFER = 4096               # taille max des messages reçus
+import os
+
+SERVEUR_IP    = os.getenv("VPN_IP", "127.0.0.1")
+SERVEUR_PORT  = int(os.getenv("VPN_PORT", "9999"))
+MOT_DE_PASSE  = os.getenv("VPN_PASSWORD", "changez_moi")  # jamais hardcodé
+TAILLE_BUFFER = 4096
