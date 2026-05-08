@@ -32,7 +32,7 @@ def _obtenir_cle(mot_de_passe: str, salt: bytes = SALT_FIXE) -> bytes:
 def chiffrer(message: str | bytes, mot_de_passe: str, compresser: bool = True, salt: bytes = None) -> bytes:
     """
     Chiffre un message (texte ou binaire) avec AES-256-GCM, avec compression optionnelle.
-    Retourne un paquet bytes : flag_compression(1) + IV(12) + message_chiffré + tag(16)
+    Retourne un paquet bytes : flag_compression(1) + IV(12) + message_chiffré + tag(16) ( total = 29 bytes + taille message chiffré)
     
     Args:
         message: str ou bytes à chiffrer. Si str, encodé en UTF-8. Si bytes, utilisé directement.
