@@ -1,5 +1,5 @@
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║                    VPN EDUCATIF — REORGANISATION COMPLETE                    ║
+║                                  MINI _VPN_UNIV
 ║                                  [VERSION 1.0]                               ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 
@@ -192,7 +192,7 @@ Améliorations futures possible:
 
 ✨ STATUS: PRODUCTION-READY
 
-Date:     December 2024
+Date:     December 2026
 Version:  1.0
 Statut:   COMPLETE & TESTED ✅
 

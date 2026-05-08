@@ -156,6 +156,82 @@ Le serveur enregistre pour chaque client :
 - **Débit moyen**
 - **Durée de connexion**
 
+## 🔬 Analyse avec Wireshark
+
+### Installation
+
+```bash
+# Windows / Mac / Linux
+# Télécharger depuis : https://www.wireshark.org/download/
+
+# Linux (Debian/Kali)
+sudo apt install wireshark
+```
+
+### Capturer le trafic
+
+**Terminal 1 - Serveur :**
+```bash
+export VPN_PASSWORD="test123"
+python servers/server.py --host 127.0.0.1 --port 5000
+```
+
+**Terminal 2 - Wireshark :**
+```bash
+# Lancer Wireshark avec admin/sudo
+sudo wireshark
+
+# OU en CLI (plus rapide)
+sudo tcpdump -i lo -n port 5000 -w vpn_capture.pcap
+```
+
+**Terminal 3 - Client :**
+```bash
+python servers/client.py
+# Entrer IP: 127.0.0.1
+# Entrer port: 5000
+# Entrer mot de passe: test123
+# Envoyer quelques messages
+```
+
+### Analyser dans Wireshark
+
+1. Ouvrir le fichier capturé ou voir live
+2. Filtrer : `tcp.port == 5000`
+3. Observer les paquets :
+   - **Paquets 1-2** : Handshake TCP
+   - **Paquet 3** : `CHALLENGE` (type 0x02) - nonce 32 bytes en clair
+   - **Paquet 4** : `AUTH_REQ` (type 0x03) - HMAC chiffré
+   - **Paquet 5+** : `DATA` (type 0x10) - Payload complètement chiffré ✅
+
+### Observations clés
+
+```
+Frame 1: TCP SYN → Établissement connexion
+Frame 2: TCP ACK
+Frame 3: [0x02 | seq | len | nonce_aléatoire(32)]  ← CHALLENGE EN CLAIR
+Frame 4: [0x03 | seq | len | chiffré(HMAC)]        ← AUTH RESPONSE (déchiffrable avec pcap-ng + clé)
+Frame 5: [0x10 | seq | len | AES-256-GCM(data)]    ← DATA CHIFFRÉ ✅ (opaque)
+Frame 6: [0x20 | seq | len | PING chiffré]         ← KEEPALIVE (opaque)
+```
+
+**✅ Observations de sécurité :**
+- Nonce unique par connexion (Frame 3) ✓
+- Payload des données complètement chiffré (Frames 5+) ✓
+- Longueur des messages visible (possible fingerprinting) ⚠️
+- Pas de chiffrement de métadonnées (type visible) ⚠️
+
+### Exportation des paquets
+
+**Extraire les données brutes :**
+```bash
+# Depuis la capture .pcap
+tcpdump -r vpn_capture.pcap -A -X port 5000 | head -50
+
+# Analyser les longueurs
+tcpdump -r vpn_capture.pcap -n 'port 5000' | awk '{print $NF}' | sort | uniq -c
+```
+
 ## ⚠️ Limitations éducatives
 
 - **Pas de vrai routage IP** : c'est un tunnel chiffré, pas un VPN complet L3
