@@ -319,7 +319,7 @@ def authentifier(conn, addr, salt: bytes = None) -> bool:
             return False
         
         # Vérifier le HMAC
-        hmac_attendu = hmac.new(MOT_DE_PASSE.encode(), nonce, 'sha256').digest()
+        hmac_attendu = hmac.new(MOT_DE_PASSE.encode(), nonce+ salt, 'sha256').digest()
         
         if not hmac.compare_digest(reponse_client, hmac_attendu):
             logging.warning(f"{addr} a envoyé un HMAC incorrect")

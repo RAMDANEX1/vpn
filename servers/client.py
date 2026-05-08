@@ -139,7 +139,7 @@ def authentifier(s: socket.socket, mot_de_passe: str, salt: bytes = None) -> boo
             return False
         
         # Calculer la réponse HMAC
-        hmac_reponse = hmac.new(mot_de_passe.encode(), nonce, 'sha256').digest()
+        hmac_reponse = hmac.new(mot_de_passe.encode(), nonce+salt, 'sha256').digest()
         
         # Envoyer la réponse d'authentification
         envoyer(s, emballer(TypeMessage.AUTH_REQ, hmac_reponse, seq=0))
